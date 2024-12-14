@@ -36,10 +36,20 @@ elif [ -f "$acct_num" ]; then
     acct_num=$(cat "$acct_num")
 fi
 
+# Retrieve access token
+access_token=$(curl -s -X POST 'https://api.mullvad.net/auth/v1/token' \
+                -H 'accept: application/json' \
+                -H 'content-type: application/json' \
+                -d '{ "account_number": "'${acct_num}'" }' | jq -r .access_token)
+
+if [ -z "$access_token" ] || [ "$access_token" == "null" ]; then
+    echo "Failed to authenticate and retrieve access token. Please check your account number."
+    exit 1
+fi
+
 server_data() {
-    data=$(curl https://api.mullvad.net/www/relays/wireguard/ 2>/dev/null \
-            | sed 's/},{/}\n{/g' | grep $1
-          )
+    data=$(curl -s https://api.mullvad.net/www/relays/wireguard/ \
+            | sed 's/},{/}\n{/g' | grep $1)
     # Check response
     if [ -z "$data" ] || [ $(echo "$data" | wc -l) -gt 1 ]; then
         echo "Please provide a valid Mullvad Wireguard server hostname"
@@ -94,22 +104,22 @@ if [ -z "$config" ]; then
     # If not replacing, register new key
     response=$(curl -sSL https://api.mullvad.net/app/v1/wireguard-keys \
                 -H "Content-Type: application/json" \
-                -H "Authorization: Token $acct_num" \
+                -H "Authorization: Bearer $access_token" \
                 -d '{"pubkey":"'$pub_key'"}' \
               )
 else
     # If replacing, replace
     response=$(curl -sSL https://api.mullvad.net/app/v1/replace-wireguard-key \
                 -H "Content-Type: application/json" \
-                -H "Authorization: Token $acct_num" \
+                -H "Authorization: Bearer $access_token" \
                 -d '{"old":"'$old_pubkey'","new":"'$pub_key'"}'
               )
 fi
 
 # Check Response for failure
 if echo "$response" | grep -q "ipv4_address"; then
-    ipv4=$(echo $response | sed 's/.*ipv4_address\":\"\(.*\)\",\"ipv6.*/\1/')
-    ipv6=$(echo $response | sed 's/.*ipv6_address\":\"\(.*\)\".*/\1/')
+    ipv4=$(echo $response | sed 's/.*ipv4_address":"\(.*\)","ipv6.*/\1/')
+    ipv6=$(echo $response | sed 's/.*ipv6_address":"\(.*\)".*/\1/')
 else
     echo "Failure to authenticate with Mullvad API"
     echo "$response"
